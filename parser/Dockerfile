@@ -23,4 +23,4 @@ RUN pip install --no-cache-dir --upgrade -r /w24ok-bot-parser/requirements.txt
 
 COPY ./ .
 
-ENTRYPOINT [ "python3", "Parser.py"]
+ENTRYPOINT [ "python3", "ParserV2.py"]

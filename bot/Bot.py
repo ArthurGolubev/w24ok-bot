@@ -143,6 +143,10 @@ class Bot(SQLHandler):
     @logger.catch
     async def sub_step_2(self, update, context):
         logger.info(f'Step 2')
+        logger.info(f'{update.message=}')
+        logger.info(f'{update.message.chat.first_name=}')
+        logger.info(f'{update.message.chat.last_name=}')
+        logger.info(f'{update.message.chat.id=}')
         first_name  = update.message.chat.first_name
         last_name   = update.message.chat.last_name
         chat_id   = update.message.chat.id
@@ -155,6 +159,8 @@ class Bot(SQLHandler):
             chat_id=chat_id,
             forum=update.message.text
             )
+        logger.info(f'{sub=}')
+        
 
         if sub:
             logger.info(f'\n\n\U0001F916 <b>Bot {update.message.text}</b>\n<b>#NewSubscriber!\nUser: {first_name} {last_name} {chat_id}</b>')

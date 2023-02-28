@@ -15,7 +15,7 @@ psql -v ON_ERROR_STOP = 1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<
                 first_name varchar(50),
                 last_name varchar(50) NULL,
                 subsc_date timestamp,
-                chat_id integer UNIQUE
+                chat_id bigint UNIQUE
             );
 
     CREATE TABLE IF NOT EXISTS forum_subscriber (

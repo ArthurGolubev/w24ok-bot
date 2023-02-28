@@ -1,21 +1,18 @@
 import os
-import sys
-from loguru import logger
+import re
 from time import sleep
+from loguru import logger
+from bs4 import BeautifulSoup
 from notifiers import get_notifier
+from urllib.request import urlopen
 from notifiers.logging import NotificationHandler
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
 from SQLHandler import SQLHandler
 
-class Parser(SQLHandler):
-    @logger.catch
-    def __init__(self):
+
+class ParserV2(SQLHandler):
+    def __init__(self) -> None:
         self.comments = {}
         self.conn_arg = os.getenv("W24OK_BOT_DB_CONN_ARGS")
-        logger.debug(f'{self.conn_arg=}')
-        logger.info(f'{os.getenv("W24OK_MASTER_BOT_TOKEN")=}')
-        # logger через telegram для MasterBot
         self.params = {
             "token": os.getenv("W24OK_MASTER_BOT_TOKEN"),
             "chat_id": int(os.getenv(f"MY_CHAT_ID")),
@@ -24,45 +21,13 @@ class Parser(SQLHandler):
 
         handler = NotificationHandler('telegram', defaults=self.params)
         logger.add(handler, level="INFO")
-        # logger.add('/home/containers/w24ok-bot/logs/ParserParser.log', rotation="10:00", compression="zip", level="INFO", retention=7)
         logger.info(f'\n\n\U0001F9FE <b><i>Start ParserParser</i></b>')
-
         self.telegram = get_notifier('telegram')
-        
-        options = webdriver.ChromeOptions()
-        options.add_argument('--ignore-ssl-errors=yes')
-        options.add_argument('--ignore-certificate-errors')
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-gpu')
-        options.add_argument('--disable-dev-shm-usage')
-        options.page_load_strategy = 'eager'
-        self.browser    = webdriver.Remote("http://w24ok-bot-selenium-svc:4444/wd/hub", options=options)
-        self.auth()
-        
-        # self.sql_create_tables()
         self.forums = self.sql_get_forums()
 
-    @logger.catch
-    def auth(self):
-
-        self.browser.get('https://24-ok.ru/user/login')
-        login_input     = self.browser.find_element('xpath', '//input[@id="loginform-username"]')
-        password_input  = self.browser.find_element('xpath', '//input[@id="loginform-password"]')
-        # button          = self.browser.find_element('xpath', '//button[@type="submit" and contains(@class, "btn") and contains(@class, "btn-gray-245") and contains(@class, "rounded-lg") and contains(@class, "px-4")]')
-        button          = self.browser.find_element('xpath', '//button[@type="submit" and contains(@class, "btn") and contains(@class, "btn-dark-12") ]')
-        logger.info(f"{button=}")
-        login_input.send_keys(os.getenv("FORUM0"))
-        password_input.send_keys(os.getenv("FORUM1"))
-        button.click()
-        sleep(10)
-        if(self.browser.current_url == 'https://24-ok.ru/site/index?logaction=success'):
-            logger.info(f'\n\n<b><i>ParserParser auth successfully</i></b>')
-        else:
-            logger.info(f'{self.browser.current_url=}')
-            logger.info(f'\n\n<b><i>ParserParser auth failed</i></b>')
 
 
-    @logger.catch
+
     def start_monitoring(self):
         """Следить за последним коментарием темы ЦРа. Если появятся изменения - отправить всем подпищикам на бота этой темы"""
         logger.info(f'start forum monitoring')
@@ -76,13 +41,13 @@ class Parser(SQLHandler):
         while(True):
             for forum in self.forums:
                 self.forum_monitoring(forum)
+                sleep(10)
 
-    @logger.catch
+
     def forum_monitoring(self, forum):
         # Step 2: проход по всем страницам и сравнения комента в кэше с последнем на странице
-        self.browser.get(forum[3])
-        sleep(5)
         last_comment = self.get_last_comment(forum) # Последний комент на странице
+
         if not self.comments[forum[1]] or last_comment.get('comment_id') != self.comments[forum[1]][3]:
             '''Сохраняем его в БД'''
             new_comment = self.sql_insert_comment_into_db(last_comment)
@@ -94,7 +59,7 @@ class Parser(SQLHandler):
                 subscribers = self.sql_select_subscribers(forum_id=forum[0])
             
                 for subscriber in subscribers:
-                    logger.info(f'sub -> {subscriber}')
+                    logger.info(f'sub -> {subscriber} sand message')
                     params = {
                         "token": os.getenv(f"FORUM_MONITORING_BOT"),
                         "chat_id": subscriber[4],
@@ -105,25 +70,28 @@ class Parser(SQLHandler):
                         **params
                         )
 
-    @logger.catch
+
+
     def get_last_comment(self, forum):
         """Найти последний коментарий из списка коментариев на открытой странице темы ЦРа"""
+        html = urlopen(forum[3])
+
+        html = html.read().decode("utf-8")
+        soup = BeautifulSoup(html, "html.parser")
         # последняя карточка
-        elem = self.browser.find_elements('xpath', f".//div[contains(@class, 'row') and contains(@class, 'h-100')]")[-1]
+        last_comment = soup.find_all('div', ['row h-100'])[-1]
+        id_ = last_comment.find("div", id=re.compile("^pt")).attrs.get("id")
+        text = last_comment.find("div", id=re.compile("^pt")).text.strip()
+        participant = last_comment.find("a", class_='font-weight-bold').text
 
         return {
-            'comment_id': elem.find_element("xpath",".//div[contains(@id, 'pt')]").get_attribute('id'),
-            'comment_text': elem.find_element("xpath",".//div[contains(@id, 'pt')]").text,
-            'participant': elem.find_element("xpath",".//a[contains(@class, 'font-weight-bold')]").text,
+            'comment_id': id_,
+            'comment_text': text,
+            'participant': participant,
             'forum_id': forum[0],
             'forum_short_name': forum[1]
             }
 
-
-    
-if __name__ == "__main__":
-    p = Parser()
-    try:
-        p.start_monitoring()
-    finally:
-        p.browser.quit()
+if __name__ == '__main__':
+    p = ParserV2()
+    p.start_monitoring()
